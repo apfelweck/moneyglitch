@@ -1,6 +1,5 @@
 import datetime
 import json
-
 import yaml
 import requests
 import uuid
@@ -12,17 +11,27 @@ from order_types.Quote import Quote
 class Session:
 
     def __init__(self, properties_file, access_file):
+        self.properties_file = properties_file
+        self.access_file = access_file
+
         with open(properties_file, 'r') as file:
             self.props = yaml.safe_load(file)
             self.url = self.props['url']
             self.oauth_url = self.props['oauth_url']
+
+            if any(key is None for key in self.props.values()):
+                raise ValueError(f'You must provide account information in {properties_file} file')
 
         with open(access_file, 'r') as file:
             self.access = yaml.safe_load(file)
             self.session_id = self.access['session_id']
             self.access_token = self.access['access_token']
             self.refresh_token = self.access['refresh_token']
-            self.activate_session_timestamp = datetime.datetime.strptime(str(self.access['activate_session_timestamp']), "%Y-%m-%d %H:%M:%S.%f")
+            if self.access['activate_session_timestamp'] is not None:
+                self.activate_session_timestamp = datetime.datetime.strptime(
+                    str(self.access['activate_session_timestamp']), "%Y-%m-%d %H:%M:%S.%f")
+            else:
+                self.activate_session_timestamp = datetime.datetime.now()
 
         self.process_status(self.get_session_status())
         self.refresh_session_tan()
@@ -50,19 +59,21 @@ class Session:
             self.access_token = response.json()['access_token']
             self.refresh_token = response.json()['refresh_token']
             self.activate_session_timestamp = datetime.datetime.now()
-            access = {
-                "access_token": self.access_token,
-                "session_id": self.session_id,
-                "refresh_token": self.refresh_token,
-                "activate_session_timestamp": self.activate_session_timestamp
-            }
 
-            with open('access.yml', 'w') as file:
-                yaml.dump(access, file, default_flow_style=False)
-
+            self.write_to_access_file()
         else:
             raise RuntimeError(
                 f'Error in refresh_session_tan. status_code = {response.status_code} text = {response.text}')
+
+    def write_to_access_file(self):
+        access = {
+            "access_token": self.access_token,
+            "session_id": self.session_id,
+            "refresh_token": self.refresh_token,
+            "activate_session_timestamp": self.activate_session_timestamp
+        }
+        with open(self.access_file, 'w') as file:
+            yaml.dump(access, file, default_flow_style=False)
 
     def tan_session(self):
         # 2.1 OAuth2 Resource Owner Password Credentials Flow
@@ -80,22 +91,19 @@ class Session:
                 "Accept": "application/json",
                 "Content-Type": "application/x-www-form-urlencoded"
             })
-        tmp = response.json()
-        self.access_token = tmp["access_token"]
-        self.refresh_token = tmp["refresh_token"]
+        json_response = response.json()
+        if json_response == {'error': 'invalid_client', 'error_description': 'Bad client credentials'}:
+            raise ValueError(f'Invalid credentials provided in {self.access_file}')
+
+        self.access_token = json_response["access_token"]
+        self.refresh_token = json_response["refresh_token"]
 
         # 2.2 Session-Status
         self.session_id = uuid.uuid4()
         response = requests.get(
             f'{self.url}/session/clients/user/v1/sessions',
             allow_redirects=False,
-            headers={
-                "Accept": "application/json",
-                "Authorization": f"Bearer {self.access_token}",
-                "x-http-request-info": f'{{"clientRequestId":{{"sessionId":"{self.session_id}",'
-                                       f'"requestId":"{time.time()}"}}}}',
-                "Content-Type": "application/json"
-            })
+            headers=self.get_basic_header())
         self.session_id = response.json()[0]['identifier']
 
         # 2.3 Anlage Validierung einer Session-TAN
@@ -103,31 +111,17 @@ class Session:
             f'{self.url}/session/clients/user/v1/sessions/{self.session_id}/validate',
             data=f'{{"identifier":"{self.session_id}","sessionTanActive":true,"activated2FA":true}}',
             allow_redirects=False,
-            headers={
-                "Accept": "application/json",
-                "Authorization": f"Bearer {self.access_token}",
-                "x-http-request-info": f'{{"clientRequestId":{{"sessionId":"{self.session_id}",'
-                                       f'"requestId":"{time.time()}"}}}}',
-                "Content-Type": "application/json"
-            })
+            headers=self.get_basic_header())
         challenge_id = json.loads(response.headers["x-once-authentication-info"])["id"]
 
-        tan_from_app = input("Press enter when you completed the tan...\n")
+        input("Press enter when you completed the tan...\n")
 
         # 2.4 Aktivierung einer Session-TAN
-        response = requests.patch(
+        requests.patch(
             f'{self.url}/session/clients/user/v1/sessions/{self.session_id}',
             data=f'{{"identifier":"{self.session_id}","sessionTanActive":true,"activated2FA":true}}',
             allow_redirects=False,
-            headers={
-                "Accept": "application/json",
-                "Authorization": f"Bearer {self.access_token}",
-                "x-http-request-info": f'{{"clientRequestId":{{"sessionId":"{self.session_id}",'
-                                       f'"requestId":"{time.time()}"}}}}',
-                "Content-Type": "application/json",
-                "x-once-authentication-info": f'{{"id":"{challenge_id}"}}'
-            })
-        # print(response.json())
+            headers=self.get_challenge_header(challenge_id))
 
         # 2.5 OAuth2 CD Secondary-Flow
         response = requests.post(
@@ -146,16 +140,7 @@ class Session:
         self.access_token = response.json()['access_token']
         self.refresh_token = response.json()['refresh_token']
         self.activate_session_timestamp = datetime.datetime.now()
-
-        access = {
-            "access_token": self.access_token,
-            "session_id": self.session_id,
-            "refresh_token": self.refresh_token,
-            "activate_session_timestamp": self.activate_session_timestamp
-        }
-
-        with open('access.yml', 'w') as file:
-            yaml.dump(access, file, default_flow_style=False)
+        self.write_to_access_file()
 
     def process_status(self, status_response):
         if status_response.status_code == 200:
@@ -344,7 +329,8 @@ class Session:
         )
         if response.status_code == 200:
             return response.json()
-        if response.status_code == 422 and response.json()['messages'][0]['key'].startswith("fehler-keine-handelswerte"):
+        if response.status_code == 422 and response.json()['messages'][0]['key'].startswith(
+                "fehler-keine-handelswerte"):
             return {"error": "fehler-keine-handelswerte"}
         else:
             raise RuntimeError(

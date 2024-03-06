@@ -1,4 +1,4 @@
-import datetime
+from datetime import datetime
 import json
 import yaml
 import requests
@@ -6,6 +6,10 @@ import uuid
 import time
 
 from order_types.Quote import Quote
+
+
+def get_default_error_message(func_name, response):
+    return f'Error in {func_name} status_code = {response.status_code} text = {response.content}'
 
 
 class Session:
@@ -22,24 +26,28 @@ class Session:
             if any(key is None for key in self.props.values()):
                 raise ValueError(f'You must provide account information in {properties_file} file')
 
-        with open(access_file, 'r') as file:
+        with (open(access_file, 'r') as file):
             self.access = yaml.safe_load(file)
             self.session_id = self.access['session_id']
             self.access_token = self.access['access_token']
             self.refresh_token = self.access['refresh_token']
             if self.access['activate_session_timestamp'] is not None:
-                self.activate_session_timestamp = datetime.datetime.strptime(
+                self.activate_session_timestamp = datetime.strptime(
                     str(self.access['activate_session_timestamp']), "%Y-%m-%d %H:%M:%S.%f")
             else:
-                self.activate_session_timestamp = datetime.datetime.now()
+                self.activate_session_timestamp = datetime.now()
 
         self.process_status(self.get_session_status())
         self.refresh_session_tan()
         # from now on we have an active Session-Tan
+
+        if not self.get_depot_id().json()['values']:
+            raise RuntimeError(f'You have no depot')
+
         self.depot_id = self.get_depot_id().json()['values'][0]['depotId']
 
     def refresh_session_tan(self):
-        if (datetime.datetime.now() - self.activate_session_timestamp).total_seconds() <= 400:
+        if (datetime.now() - self.activate_session_timestamp).total_seconds() <= 400:
             return
         print('refreshing session')
         response = requests.post(
@@ -58,12 +66,12 @@ class Session:
         if response.status_code == 200:
             self.access_token = response.json()['access_token']
             self.refresh_token = response.json()['refresh_token']
-            self.activate_session_timestamp = datetime.datetime.now()
+            self.activate_session_timestamp = datetime.now()
 
             self.write_to_access_file()
-        else:
-            raise RuntimeError(
-                f'Error in refresh_session_tan. status_code = {response.status_code} text = {response.text}')
+            return
+
+        raise RuntimeError(get_default_error_message('refresh_session_tan', response))
 
     def write_to_access_file(self):
         access = {
@@ -139,7 +147,7 @@ class Session:
             })
         self.access_token = response.json()['access_token']
         self.refresh_token = response.json()['refresh_token']
-        self.activate_session_timestamp = datetime.datetime.now()
+        self.activate_session_timestamp = datetime.now()
         self.write_to_access_file()
 
     def process_status(self, status_response):
@@ -154,19 +162,11 @@ class Session:
                 print("Tan abgelaufen. Neue Tan wird angefragt...")
                 self.tan_session()
                 return
-        raise RuntimeError(
-            f'Error while requesting status. status_code = {status_response.status_code} text = {status_response.text}')
+        raise RuntimeError(get_default_error_message('process_status', status_response))
 
     def get_session_status(self):
         response = requests.get(
             f'{self.url}/session/clients/user/v1/sessions',
-            allow_redirects=False,
-            headers=self.get_basic_header())
-        return response
-
-    def get_account_balance(self):
-        response = requests.get(
-            f'{self.url}/banking/clients/user/v2/accounts/balances',
             allow_redirects=False,
             headers=self.get_basic_header())
         return response
@@ -176,16 +176,6 @@ class Session:
             f'{self.url}/brokerage/clients/user/v3/depots',
             allow_redirects=False,
             headers=self.get_basic_header())
-        return response
-
-    def get_order_dimensions(self, wkn):
-        response = requests.get(
-            f'{self.url}/brokerage/v3/orders/dimensions',
-            allow_redirects=False,
-            headers=self.get_basic_header(),
-            params={
-                "WKN": {wkn},
-                "type": "EXCHANGE"})
         return response
 
     def get_basic_header(self):
@@ -208,90 +198,12 @@ class Session:
             "x-once-authentication": "TAN_FREI"
         }
 
-    def create_order_data(self, instrument_id, venue_id, side, limit_price, quantity):
-        return f'''{{
-                "depotId": "{self.depot_id}", 
-                "orderType": "LIMIT", 
-                "side": "{side}", 
-                "instrumentId": "{instrument_id}",
-                "quantity": {{"value": "{quantity}", "unit": "XXX"}},
-                "venueId": "{venue_id}",
-                "limit": {{"value": "{limit_price}", "unit": "EUR"}},
-                "validityType": "GFD"
-                }}'''
-
     def get_existing_orders(self):
         response = requests.get(
             f'{self.url}/brokerage/depots/{self.depot_id}/v3/orders',
             headers=self.get_basic_header(),
             allow_redirects=False)
         return response
-
-    def get_instrument(self, instrument_id):
-        response = requests.get(
-            f'{self.url}/brokerage/v1/instruments/{instrument_id}',
-            allow_redirects=False,
-            headers=self.get_basic_header(),
-            params={
-
-            })
-        return response.json()
-
-    # Order -------------------------------------------------------------------
-
-    def pre_validation_order(self, data):
-        response = requests.post(
-            f'{self.url}/brokerage/v3/orders/prevalidation',
-            allow_redirects=False,
-            headers=self.get_basic_header(),
-            data=data)
-        return response
-
-    def validate_order(self, data):
-        response = requests.post(
-            f'{self.url}/brokerage/v3/orders/validation',
-            headers=self.get_basic_header(),
-            allow_redirects=False,
-            data=data)
-
-        if response.status_code == 201:
-            order_Tan = json.loads(response.headers.get('x-once-authentication-info'))['id']
-            return response.json(), order_Tan
-        else:
-            raise RuntimeError(
-                f'Error in validate_order. status_code = {response.status_code} text = {response.content}')
-
-    def ex_ante_cost_oder(self, data):
-        response = requests.post(
-            f'{self.url}/brokerage/v3/orders/costindicationexante',
-            allow_redirects=False,
-            headers=self.get_basic_header(),
-            data=data)
-        if response.status_code == 201:
-            return response.json()
-        else:
-            raise RuntimeError(
-                f'Error in ex_ante_cost_oder. status_code = {response.status_code} text = {response.content}')
-
-    def activate_order(self, data, challenge_id):
-        response = requests.post(
-            f'{self.url}/brokerage/v3/orders',
-            allow_redirects=False,
-            headers={
-                "Accept": "application/json",
-                "Authorization": f"Bearer {self.access_token}",
-                "x-http-request-info": f'{{"clientRequestId":{{"sessionId":"{self.session_id}",'
-                                       f'"requestId":"{time.time()}"}}}}',
-                "Content-Type": "application/json",
-                "x-once-authentication-info": f'{{"id":"{challenge_id}"}}',
-                "x-once-authentication": "TAN_FREI"
-            },
-            data=data)
-        if response.status_code == 201:
-            return response.json()
-        else:
-            raise RuntimeError(
-                f'Error in activate_order. status_code = {response.status_code} text = {response.content}')
 
     # Quote -------------------------------------------------------------------
 
@@ -305,18 +217,18 @@ class Session:
             quote_ticket_uuid = response.json()['quoteTicketId']
             challenge_id = json.loads(response.headers.get("x-once-authentication-info"))['id']
             return quote_ticket_uuid, challenge_id
-        else:
-            raise RuntimeError(
-                f'Error in create_quote_request_initialization. status_code = {response.status_code} text = {response.content}')
+
+        raise RuntimeError(get_default_error_message('create_quote_request_initialization', response))
 
     def update_quote_request_initialization_with_tan(self, quote_ticket_uuid, challenge_id):
         response = requests.patch(
             f'{self.url}/brokerage/v3/quoteticket/{quote_ticket_uuid}',
             allow_redirects=False,
             headers=self.get_challenge_header(challenge_id))
-        if response.status_code != 204:
-            raise RuntimeError(
-                f'Error in update_quote_request_initialization_with_tan. status_code = {response.status_code} text = {response.content}')
+        if response.status_code == 204:
+            return
+
+        raise RuntimeError(get_default_error_message('update_quote_request_initialization_with_tan', response))
 
     def create_quote_request(self, quote: Quote):
         response = requests.post(
@@ -327,12 +239,11 @@ class Session:
         )
         if response.status_code == 200:
             return response.json()
-        if response.status_code == 422 and response.json()['messages'][0]['key'].startswith(
-                "fehler-keine-handelswerte"):
+        if (response.status_code == 422 and
+                response.json()['messages'][0]['key'].startswith("fehler-keine-handelswerte")):
             return {"error": "fehler-keine-handelswerte"}
-        else:
-            raise RuntimeError(
-                f'Error in create_quote_request. status_code = {response.status_code} text = {response.content}')
+
+        raise RuntimeError(get_default_error_message('create_quote_request', response))
 
     def validate_quote_order(self, quote: Quote, quote_uuid, quote_ticket_uuid, quote_price, quote_timestamp):
         response = requests.post(
@@ -343,9 +254,8 @@ class Session:
         if response.status_code == 201:
             challenge_id = json.loads(response.headers.get("x-once-authentication-info"))['id']
             return challenge_id
-        else:
-            raise RuntimeError(
-                f'Error in validate_quoute_order. status_code = {response.status_code} text = {response.content}')
+
+        raise RuntimeError(get_default_error_message('validate_quote_order', response))
 
     def activate_quote_order(self, quote: Quote, quote_uuid, quote_ticket_uuid, quote_price, quote_timestamp,
                              challenge_id):
@@ -356,8 +266,6 @@ class Session:
             data=quote.validation_quote_body(quote_uuid, quote_ticket_uuid, quote_price, quote_timestamp))
         if response.status_code == 201:
             return response.json()
-        else:
-            raise RuntimeError(
-                f'Error in activate_quote_order. status_code = {response.status_code} text = {response.content}')
+        raise RuntimeError(get_default_error_message('activate_quote_order', response))
 
     # ------------------------------------------------------------------------

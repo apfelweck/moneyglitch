@@ -147,17 +147,15 @@ class Session:
             temp = status_response.json()[0]
             if temp['sessionTanActive'] and temp['activated2FA']:
                 print("Tan-Session still active")
+                return
         elif status_response.status_code == 401:
             temp = status_response.json()
             if temp['summary'] == "error=401, error_description=unauthorized":
                 print("Tan abgelaufen. Neue Tan wird angefragt...")
                 self.tan_session()
-            else:
-                raise RuntimeError(
-                    f'Error while requesting status. status_code = {status_response.status_code} text = {status_response.text}')
-        else:
-            raise RuntimeError(
-                f'Error while requesting status. status_code = {status_response.status_code} text = {status_response.text}')
+                return
+        raise RuntimeError(
+            f'Error while requesting status. status_code = {status_response.status_code} text = {status_response.text}')
 
     def get_session_status(self):
         response = requests.get(

@@ -41,10 +41,7 @@ class Session:
         self.refresh_session_tan()
         # from now on we have an active Session-Tan
 
-        if not self.get_depot_id().json()['values']:
-            raise RuntimeError(f'You have no depot')
-
-        self.depot_id = self.get_depot_id().json()['values'][0]['depotId']
+        self.depot_id = self.get_depot_id()
 
     def refresh_session_tan(self):
         if (datetime.now() - self.activate_session_timestamp).total_seconds() <= 400:
@@ -176,7 +173,12 @@ class Session:
             f'{self.url}/brokerage/clients/user/v3/depots',
             allow_redirects=False,
             headers=self.get_basic_header())
-        return response
+        if response.status_code != 200:
+            raise RuntimeError(get_default_error_message('get_depot_id', response))
+        json_response = response.json()
+        if not json_response['values']:
+            raise RuntimeError(f'You have no depot')
+        return json_response['values'][0]['depotId']
 
     def get_basic_header(self):
         return {

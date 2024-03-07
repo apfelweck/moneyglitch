@@ -6,6 +6,7 @@ from bs4 import BeautifulSoup
 
 from Session import Session
 from order_types.Quote import Quote
+from exceptions.MarketPriceException import MarketPriceException
 
 
 def place_quote_to_be_executed(_quote: Quote):
@@ -13,12 +14,6 @@ def place_quote_to_be_executed(_quote: Quote):
     session.update_quote_request_initialization_with_tan(quote_ticket_uuid, challenge_id)
 
     json_quote = session.create_quote_request(_quote)
-
-    if 'error' in json_quote.keys():
-        if json_quote['error'] == 'fehler-keine-handelswerte':
-            return json_quote
-        else:
-            raise RuntimeError("422 Error with unknown content")
 
     quoteId = json_quote['quoteId']
     limit = json_quote['limit']
@@ -59,8 +54,9 @@ def check_quote_execution(_order_id):
 def quote_execution_manager(_quote: Quote):
     successful_execution = False
     while not successful_execution:
-        open_order_quote = place_quote_to_be_executed(_quote)
-        if 'error' in open_order_quote.keys():
+        try:
+            open_order_quote = place_quote_to_be_executed(_quote)
+        except MarketPriceException:
             print("Kein Handelskurs ermittelbar, retrying...")
             time.sleep(1)
             continue
@@ -111,5 +107,5 @@ if __name__ == "__main__":
             print("Spread to high")
             time.sleep(2)
 
-        #key = input("press enter to continue or q to quit")
-        #running = key != 'q'
+        # key = input("press enter to continue or q to quit")
+        # running = key != 'q'

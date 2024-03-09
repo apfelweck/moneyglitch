@@ -67,8 +67,8 @@ def quote_execution_manager(_quote: Quote):
         successful_execution = check_quote_execution(_order_id)
 
 
-def fetch_spread():
-    response = requests.get("https://www.comdirect.de/inf/zertifikate/DE000ME2USZ2")
+def fetch_spread(_isin):
+    response = requests.get(f"https://www.comdirect.de/inf/zertifikate/{_isin}")
     soup = BeautifulSoup(response.text, 'html.parser')
 
     sell_text = soup.find("span", {
@@ -82,19 +82,23 @@ def fetch_spread():
 
 
 if __name__ == "__main__":
-    session = Session('properties.yml', 'access.yml')
+    wkn = 'ME2USZ'
+    isin = "DE000ME2USZ2"
+    accepted_spread = 0.01
 
-    running = True
+    session = Session('properties.yml', 'access.yml')
+w
+    running = False
     while running:
         session.refresh_session_tan()
-        if fetch_spread() >= -0.01:
+        if fetch_spread(isin) >= -accepted_spread:
             # ---------------------------- Open Pos
-            buy_quote = Quote(session.depot_id, "BUY", "ME2USZ", 3, "FA5644CBF2914EB792FEE82433789013")
+            buy_quote = Quote(session.depot_id, "BUY", wkn, 3, "FA5644CBF2914EB792FEE82433789013")
             quote_execution_manager(buy_quote)
 
             # ------------------------------------------------------- close Pos
 
-            sell_quote = Quote(session.depot_id, "SELL", "ME2USZ", 3, "FA5644CBF2914EB792FEE82433789013")
+            sell_quote = Quote(session.depot_id, "SELL", wkn, 3, "FA5644CBF2914EB792FEE82433789013")
             quote_execution_manager(sell_quote)
 
             with open('trades.json', 'r') as file:

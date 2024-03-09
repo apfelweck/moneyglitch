@@ -6,6 +6,7 @@ from bs4 import BeautifulSoup
 
 from Session import Session
 from order_types.Quote import Quote
+from exceptions.MarketPriceException import MarketPriceException
 
 
 def place_quote_to_be_executed(_quote: Quote):
@@ -13,12 +14,6 @@ def place_quote_to_be_executed(_quote: Quote):
     session.update_quote_request_initialization_with_tan(quote_ticket_uuid, challenge_id)
 
     json_quote = session.create_quote_request(_quote)
-
-    if 'error' in json_quote.keys():
-        if json_quote['error'] == 'fehler-keine-handelswerte':
-            return json_quote
-        else:
-            raise RuntimeError("422 Error with unknown content")
 
     quoteId = json_quote['quoteId']
     limit = json_quote['limit']
@@ -59,8 +54,9 @@ def check_quote_execution(_order_id):
 def quote_execution_manager(_quote: Quote):
     successful_execution = False
     while not successful_execution:
-        open_order_quote = place_quote_to_be_executed(_quote)
-        if 'error' in open_order_quote.keys():
+        try:
+            open_order_quote = place_quote_to_be_executed(_quote)
+        except MarketPriceException:
             print("Kein Handelskurs ermittelbar, retrying...")
             time.sleep(1)
             continue
@@ -71,8 +67,8 @@ def quote_execution_manager(_quote: Quote):
         successful_execution = check_quote_execution(_order_id)
 
 
-def fetch_spread():
-    response = requests.get("https://www.comdirect.de/inf/zertifikate/DE000ME2USZ2")
+def fetch_spread(_isin):
+    response = requests.get(f"https://www.comdirect.de/inf/zertifikate/{_isin}")
     soup = BeautifulSoup(response.text, 'html.parser')
 
     sell_text = soup.find("span", {
@@ -86,19 +82,23 @@ def fetch_spread():
 
 
 if __name__ == "__main__":
-    session = Session('properties.yml', 'access.yml')
+    wkn = 'ME2USZ'
+    isin = "DE000ME2USZ2"
+    accepted_spread = 0.01
 
-    running = True
+    session = Session('properties.yml', 'access.yml')
+w
+    running = False
     while running:
         session.refresh_session_tan()
-        if fetch_spread() >= -0.01:
+        if fetch_spread(isin) >= -accepted_spread:
             # ---------------------------- Open Pos
-            buy_quote = Quote(session.depot_id, "BUY", "ME2USZ", 3, "FA5644CBF2914EB792FEE82433789013")
+            buy_quote = Quote(session.depot_id, "BUY", wkn, 3, "FA5644CBF2914EB792FEE82433789013")
             quote_execution_manager(buy_quote)
 
             # ------------------------------------------------------- close Pos
 
-            sell_quote = Quote(session.depot_id, "SELL", "ME2USZ", 3, "FA5644CBF2914EB792FEE82433789013")
+            sell_quote = Quote(session.depot_id, "SELL", wkn, 3, "FA5644CBF2914EB792FEE82433789013")
             quote_execution_manager(sell_quote)
 
             with open('trades.json', 'r') as file:
@@ -111,5 +111,5 @@ if __name__ == "__main__":
             print("Spread to high")
             time.sleep(2)
 
-        #key = input("press enter to continue or q to quit")
-        #running = key != 'q'
+        # key = input("press enter to continue or q to quit")
+        # running = key != 'q'

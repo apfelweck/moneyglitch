@@ -4,6 +4,7 @@ import yaml
 import requests
 import uuid
 import time
+from exceptions.MarketPriceException import MarketPriceException
 
 from order_types.Quote import Quote
 
@@ -41,10 +42,7 @@ class Session:
         self.refresh_session_tan()
         # from now on we have an active Session-Tan
 
-        if not self.get_depot_id().json()['values']:
-            raise RuntimeError(f'You have no depot')
-
-        self.depot_id = self.get_depot_id().json()['values'][0]['depotId']
+        self.depot_id = self.get_depot_id()
 
     def refresh_session_tan(self):
         if (datetime.now() - self.activate_session_timestamp).total_seconds() <= 400:
@@ -176,7 +174,12 @@ class Session:
             f'{self.url}/brokerage/clients/user/v3/depots',
             allow_redirects=False,
             headers=self.get_basic_header())
-        return response
+        if response.status_code != 200:
+            raise RuntimeError(get_default_error_message('get_depot_id', response))
+        json_response = response.json()
+        if not json_response['values']:
+            raise RuntimeError(f'You have no depot')
+        return json_response['values'][0]['depotId']
 
     def get_basic_header(self):
         return {
@@ -235,13 +238,13 @@ class Session:
             f'{self.url}/brokerage/v3/quotes',
             allow_redirects=False,
             headers=self.get_basic_header(),
-            data=quote.__str__()
-        )
+            data=quote.__str__())
+
         if response.status_code == 200:
             return response.json()
         if (response.status_code == 422 and
                 response.json()['messages'][0]['key'].startswith("fehler-keine-handelswerte")):
-            return {"error": "fehler-keine-handelswerte"}
+            raise MarketPriceException(response.json()['messages'][0]['key'])
 
         raise RuntimeError(get_default_error_message('create_quote_request', response))
 

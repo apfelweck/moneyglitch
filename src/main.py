@@ -5,8 +5,8 @@ import requests
 from bs4 import BeautifulSoup
 
 from Session import Session
-from order_types.Quote import Quote
 from exceptions.MarketPriceException import MarketPriceException
+from order_types.Quote import Quote
 
 
 def place_quote_to_be_executed(_quote: Quote):
@@ -75,6 +75,8 @@ def fetch_spread(_isin):
         "class": "realtime-indicator--value text-size--xxlarge text-weight--medium inner-spacing--xxsmall-right"}).text
     buy_text = soup.find("span", {"class": "realtime-indicator--value text-size--xxlarge text-weight--medium"}).text
 
+    if sell_text == "--" or buy_text == "--":
+        raise MarketPriceException("Kein Handelskurs (bei ComD) ermittelbar, retrying...")
     sell_price = float(sell_text.replace(",", "."))
     buy_price = float(buy_text.replace(",", "."))
 
@@ -82,34 +84,42 @@ def fetch_spread(_isin):
 
 
 if __name__ == "__main__":
-    wkn = 'ME2USZ'
-    isin = "DE000ME2USZ2"
-    accepted_spread = 0.01
+    wkn = 'ME2USZ' #Wkn des Produkts
+    isin = "DE000ME2USZ2" #Isin des Produkts
+    accepted_spread = 0.01 # Spread bei dem ihr kaufen wollt
+    quantity = 3 # Ordervolumen muss größer 1005 sein, sonnst Execption
 
     session = Session('properties.yml', 'access.yml')
-w
-    running = False
+
+    running = True
     while running:
         session.refresh_session_tan()
-        if fetch_spread(isin) >= -accepted_spread:
-            # ---------------------------- Open Pos
-            buy_quote = Quote(session.depot_id, "BUY", wkn, 3, "FA5644CBF2914EB792FEE82433789013")
-            quote_execution_manager(buy_quote)
+        try:
+            spread = fetch_spread(isin)
+        except MarketPriceException as e:
+            print(e)
+            time.sleep(2)
+            continue
 
-            # ------------------------------------------------------- close Pos
-
-            sell_quote = Quote(session.depot_id, "SELL", wkn, 3, "FA5644CBF2914EB792FEE82433789013")
-            quote_execution_manager(sell_quote)
-
-            with open('trades.json', 'r') as file:
-                trades = json.load(file)
-                print(f'Trades: {(len(trades)) / 2}')
-                trade0 = float(trades[-2]['executions'][0]["executionPrice"]['value'])
-                trade1 = float(trades[-1]['executions'][0]["executionPrice"]['value'])
-                print(f'Spread payed: {round((trade0 - trade1) * 3, 2)}')
-        else:
+        if spread < -accepted_spread:
             print("Spread to high")
             time.sleep(2)
 
+        # ---------------------------- Open Pos mit veneu_id der Börse Stuttgart
+        buy_quote = Quote(session.depot_id, "BUY", wkn, quantity, "FA5644CBF2914EB792FEE82433789013")
+        quote_execution_manager(buy_quote)
+        # ------------------------------------------------------- close Pos
+
+        sell_quote = Quote(session.depot_id, "SELL", wkn, quantity, "FA5644CBF2914EB792FEE82433789013")
+        quote_execution_manager(sell_quote)
+
+        with open('trades.json', 'r') as file:
+            trades = json.load(file)
+            print(f'Trades: {(len(trades)) / 2}')
+            trade0 = float(trades[-2]['executions'][0]["executionPrice"]['value'])
+            trade1 = float(trades[-1]['executions'][0]["executionPrice"]['value'])
+            print(f'Spread payed: {round((trade0 - trade1) * 3, 2)}')
+
+        # Einkommentieren, wenn ihr nach jedem Trade bestätigen wollt
         # key = input("press enter to continue or q to quit")
         # running = key != 'q'

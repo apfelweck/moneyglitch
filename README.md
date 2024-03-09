@@ -1,5 +1,8 @@
 # moneyglitch
 
+## Disclaimer: 
+IHR SEID FÜR ALLES IN EUREM DEPOT SELBER VERANTWORTLICH !!! 
+
 ## Wie es funktioniert: 
 
 1. Tragt eure Login-Daten und Api-Access Daten in properties.yml ein
@@ -22,3 +25,4 @@ Das Programm unterstützt lediglich die push-tan Funktion über die ComD App
 
 ## trades_analize
 Das Skript wertet die getätigten Trades aus und zeigt "Gewinn" (unter der Annahme, dass die ComD den CashBack überweist)
+

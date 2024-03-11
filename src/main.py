@@ -84,10 +84,10 @@ def fetch_spread(_isin):
 
 
 if __name__ == "__main__":
-    wkn = 'ME2USZ' #Wkn des Produkts
-    isin = "DE000ME2USZ2" #Isin des Produkts
-    accepted_spread = 0.01 # Spread bei dem ihr kaufen wollt
-    quantity = 3 # Ordervolumen muss größer 1005 sein, sonnst Execption
+    wkn = 'ME2USZ'  # Wkn des Produkts
+    isin = "DE000ME2USZ2"  # Isin des Produkts
+    accepted_spread = 0.01  # Spread bei dem ihr kaufen wollt
+    quantity = 3  # Ordervolumen muss größer 1005 sein, sonnst Execption
 
     session = Session('properties.yml', 'access.yml')
 
@@ -104,6 +104,7 @@ if __name__ == "__main__":
         if spread < -accepted_spread:
             print("Spread to high")
             time.sleep(2)
+            continue
 
         # ---------------------------- Open Pos mit veneu_id der Börse Stuttgart
         buy_quote = Quote(session.depot_id, "BUY", wkn, quantity, "FA5644CBF2914EB792FEE82433789013")

@@ -19,8 +19,8 @@ def place_quote_to_be_executed(_quote: Quote):
     limit = json_quote['limit']
     quote_timestamp = json_quote['creationDateTimeStamp']
 
-    if float(limit['value']) * 3 < 1005:
-        raise RuntimeError(f'Orderbetrag unter 1000Euronen  {float(limit["value"]) * 3}')
+    if float(limit['value']) * quantity < 1005:
+        raise RuntimeError(f'Orderbetrag unter 1000Euronen  {float(limit["value"]) * quantity}')
     challenge_id = session.validate_quote_order(_quote, quoteId, quote_ticket_uuid, limit, quote_timestamp)
 
     return session.activate_quote_order(_quote, quoteId, quote_ticket_uuid, limit, quote_timestamp, challenge_id)
@@ -119,7 +119,7 @@ if __name__ == "__main__":
             print(f'Trades: {(len(trades)) / 2}')
             trade0 = float(trades[-2]['executions'][0]["executionPrice"]['value'])
             trade1 = float(trades[-1]['executions'][0]["executionPrice"]['value'])
-            print(f'Spread payed: {round((trade0 - trade1) * 3, 2)}')
+            print(f'Spread payed: {round((trade0 - trade1) * quantity, 2)}')
 
         # Einkommentieren, wenn ihr nach jedem Trade bestätigen wollt
         # key = input("press enter to continue or q to quit")

@@ -18,7 +18,7 @@ trades = [{"buy": buys[i], "sell": sells[i]} for i in range(min(len(buys), len(s
 for trade in trades:
     buy_price = float(trade['buy']['executions'][0]["executionPrice"]['value'])
     sell_price = float(trade['sell']['executions'][0]["executionPrice"]['value'])
-    trade['spread'] = (round((sell_price - buy_price) * 3, 2))
+    trade['spread'] = (round((sell_price - buy_price) * float(trade['buy']['executions'][0]["executedQuantity"]["value"]), 2))
     if "executionTimestamp" in trade['buy']['executions'][0]:
         buy_timestamp = datetime.strptime(trade['buy']['executions'][0]['executionTimestamp'][:-10], "%Y-%m-%dT%H:%M:%S")
         sell_timestamp = datetime.strptime(trade['sell']['executions'][0]['executionTimestamp'][:-10], "%Y-%m-%dT%H:%M:%S")
@@ -34,4 +34,4 @@ sum = 0
 for trade in trades:
     sum += trade['spread']
 
-print(f'Profit: {sum + len(trades)} EURO mit {len(trades)} Trades')
+print(f'Profit: {round(sum + len(trades),2)} EURO mit {len(trades)} Trades')
